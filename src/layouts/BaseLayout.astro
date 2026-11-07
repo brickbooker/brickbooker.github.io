@@ -1,0 +1,126 @@
+---
+import '../styles/global.css';
+import stats from '../data/stats.json';
+
+interface Props {
+  title?: string;
+  description?: string;
+  ogType?: 'website' | 'article';
+  jsonLd?: Record<string, unknown>;
+}
+
+const {
+  title = 'brickbooker',
+  description = '다소 두꺼운 벽돌책을 읽고 사유를 기록하는 취미 공간',
+  ogType = 'website',
+  jsonLd,
+} = Astro.props;
+
+const pageTitle = title === 'brickbooker' ? title : `${title} | brickbooker`;
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://brickbooker.github.io').toString();
+const readingMinutes = (stats.readingMinutes ?? 0).toLocaleString('en-US');
+const visits = (stats.visits ?? 0).toLocaleString('en-US');
+const viaAiVisits = (stats.viaAiVisits ?? 0).toLocaleString('en-US');
+const gaMeasurementId = import.meta.env.PUBLIC_GA4_MEASUREMENT_ID;
+const enableAnalytics = import.meta.env.PROD && Boolean(gaMeasurementId);
+---
+
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="alternate" type="application/rss+xml" title="brickbooker" href="/rss.xml" />
+    <meta name="description" content={description} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content="brickbooker" />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:locale" content="ko_KR" />
+    <meta name="naver-site-verification" content="bc447734bc063988fb97c512b166ca4d427ead18" />
+    <title>{pageTitle}</title>
+    {jsonLd && (
+      <script is:inline type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+    )}
+    {enableAnalytics && (
+      <>
+        <script is:inline async src={`https://www.googletagmanager.com/gtag/js?id=${gaMeasurementId}`}></script>
+        <script is:inline define:vars={{ gaMeasurementId }}>
+          window.dataLayer = window.dataLayer || [];
+          function gtag() { dataLayer.push(arguments); }
+          gtag('js', new Date());
+          const isHeadlessAgent = Boolean(navigator.webdriver) || /HeadlessChrome|Playwright|Puppeteer|Slurp|AI-Agent|Operator/i.test(navigator.userAgent || '');
+          if (isHeadlessAgent) {
+            gtag('set', 'campaign', { source: 'headless_ai_agent', medium: 'ai' });
+            gtag('config', gaMeasurementId, { send_page_view: false, campaign_source: 'headless_ai_agent', campaign_medium: 'ai' });
+            gtag('event', 'page_view', { campaign_source: 'headless_ai_agent', campaign_medium: 'ai' });
+          } else {
+            gtag('config', gaMeasurementId);
+          }
+        </script>
+      </>
+    )}
+    <script is:inline>
+      (function () {
+        const saved = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = saved ? saved : (prefersDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="site-title">brickbooker</a>
+      <div class="header-right">
+        <nav class="site-nav">
+          <a href="/">Posts</a>
+          <a href="/about/">About</a>
+        </nav>
+        <button
+          id="theme-toggle"
+          class="theme-toggle"
+          type="button"
+          aria-label="Toggle color theme"
+          title="Toggle theme (Light / Dark)"
+        >
+          <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2"></path>
+            <path d="M12 20v2"></path>
+            <path d="m4.93 4.93 1.41 1.41"></path>
+            <path d="m17.66 17.66 1.41 1.41"></path>
+            <path d="M2 12h2"></path>
+            <path d="M20 12h2"></path>
+            <path d="m6.34 17.66-1.41 1.41"></path>
+            <path d="m19.07 4.93-1.41 1.41"></path>
+          </svg>
+          <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer class="site-footer">
+      <span>© {new Date().getFullYear()} brickbooker</span>
+      <span>{readingMinutes} minutes read across {visits} visits ({viaAiVisits} via AI)</span>
+    </footer>
+
+    <script is:inline>
+      document.getElementById('theme-toggle')?.addEventListener('click', function () {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+      });
+    </script>
+  </body>
+</html>

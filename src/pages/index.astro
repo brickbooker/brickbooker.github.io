@@ -1,0 +1,75 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const posts = (await getCollection('posts')).sort(
+  (a, b) => b.data.date.valueOf() - a.data.date.valueOf()
+);
+
+const postsByYear = posts.reduce<Record<string, typeof posts>>((acc, post) => {
+  const year = post.data.date.getFullYear().toString();
+  if (!acc[year]) acc[year] = [];
+  acc[year].push(post);
+  return acc;
+}, {});
+
+const years = Object.keys(postsByYear).sort((a, b) => Number(b) - Number(a));
+
+function formatDate(date: Date) {
+  return date.toISOString().slice(0, 7);
+}
+
+function formatCategory(category: string) {
+  if (category === 'brick-by-brick') return 'Brick by Brick';
+  if (category === 'book-unfolded') return 'Book Unfolded';
+  return category;
+}
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'brickbooker',
+  alternateName: ['브릭부커', 'brickbooker.github.io'],
+  description: '다소 두꺼운 벽돌책을 읽고 사유를 기록하는 취미 공간',
+  url: 'https://brickbooker.github.io/',
+  inLanguage: 'ko',
+  mainEntity: {
+    '@type': 'Blog',
+    name: 'brickbooker',
+    url: 'https://brickbooker.github.io/',
+    blogPost: posts.map((post) => ({
+      '@type': 'BlogPosting',
+      headline: post.data.title,
+      url: `https://brickbooker.github.io/posts/${post.id}/`,
+      datePublished: post.data.date.toISOString().slice(0, 10),
+    })),
+  },
+};
+---
+
+<BaseLayout jsonLd={jsonLd}>
+  {years.map((year) => (
+    <section class="year-section">
+      <h2 class="year-heading">{year}</h2>
+      <ul class="post-list">
+        {postsByYear[year].map((post) => (
+          <li>
+            <a href={`/posts/${post.id}/`} class="post-card">
+              <div class="post-meta">
+                <time datetime={post.data.date.toISOString()}>
+                  {formatDate(post.data.date)}
+                </time>
+                <span class="post-category">{formatCategory(post.data.category)}</span>
+              </div>
+              <h3 class="post-item-title">{post.data.title}</h3>
+              {post.data.bricks && post.data.bricks.length > 0 && (
+                <p class="post-bricks-preview">
+                  {post.data.bricks.join(', ')}
+                </p>
+              )}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</BaseLayout>

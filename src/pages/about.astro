@@ -1,0 +1,44 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const aboutDescription =
+  '브릭부커(brickbooker) — 벽돌 같은 책을 읽고 사유를 기록하는 취미 공간. 서로 다른 시선을 맞대어 보는 Brick by Brick과 접혀 있던 책의 구조를 펼쳐보는 Book Unfolded.';
+const aboutKeywords = ['brickbooker', '브릭부커', '벽돌책', 'Brick by Brick', 'Book Unfolded'];
+const aboutJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'AboutPage',
+  name: 'About | brickbooker (브릭부커)',
+  description: aboutDescription,
+  url: 'https://brickbooker.github.io/about/',
+  inLanguage: 'ko',
+  mainEntity: {
+    '@type': 'Person',
+    name: 'brickbooker',
+    alternateName: '브릭부커',
+    url: 'https://brickbooker.github.io/',
+  },
+};
+---
+
+<BaseLayout title="About" description={aboutDescription} keywords={aboutKeywords} jsonLd={aboutJsonLd}>
+  <article class="prose about-prose">
+    <h1 class="sr-only">브릭부커 (brickbooker) 소개</h1>
+    <p>
+      <strong>brickbooker</strong>는 벽돌 같은 책을 읽고 사유를 기록하는 취미 공간입니다. 서로 다른 시선을 맞대어 보거나, 접혀 있던 책의 구조를 펼쳐봅니다.
+    </p>
+
+    <blockquote>
+      <p class="about-series-title"><strong>Brick by Brick</strong></p>
+      <p>
+        책 바깥의 다른 책이나 이론을 또 하나의 벽돌처럼 맞대어 놓고 읽습니다. 서로 다른 관점이 교차하고 대립하거나 보완되는 지점에서 생각을 넓혀봅니다.
+      </p>
+    </blockquote>
+
+    <blockquote>
+      <p class="about-series-title"><strong>Book Unfolded</strong></p>
+      <p>
+        단단한 한 권의 책 안으로 들어가 그 속에 접혀 있던 개념과 논리 구조를 한 겹씩 펼쳐 읽습니다. 책이 품은 문제의식을 고유한 틀로 풀어내며 새로운 관점으로 재구성해봅니다.
+      </p>
+    </blockquote>
+  </article>
+</BaseLayout>

@@ -1,0 +1,119 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const posts = (await getCollection('posts')).sort(
+  (a, b) => b.data.date.valueOf() - a.data.date.valueOf()
+);
+
+const postsByYear = posts.reduce<Record<string, typeof posts>>((acc, post) => {
+  const year = post.data.date.getFullYear().toString();
+  if (!acc[year]) acc[year] = [];
+  acc[year].push(post);
+  return acc;
+}, {});
+
+const years = Object.keys(postsByYear).sort((a, b) => Number(b) - Number(a));
+
+function formatDate(date: Date) {
+  return date.toISOString().slice(0, 7);
+}
+
+function formatCategory(category: string) {
+  if (category === 'brick-by-brick') return 'Brick by Brick';
+  if (category === 'book-unfolded') return 'Book Unfolded';
+  return category;
+}
+const editorialNote =
+  '브릭부커(brickbooker)의 에세이들은 함께 놓인 도서와 이론(bricks)의 통념적인 요약을 넘어, 서로 다른 시선을 교차(Brick by Brick)하거나 한 권의 내적 구조를 펼쳐(Book Unfolded) 통념에 도전하는 독자적인 해석을 담고자 합니다. 인용된 도서·이론 목록만으로는 각 글이 도달하는 반전된 결론을 가늠하기 어려우므로 아래의 글별 초록을 함께 참고하는 것이 좋으며, 정확한 인용과 구체적인 논증의 호흡은 각 포스트의 본문에서 가장 온전히 만날 수 있습니다.';
+
+const homeDescription =
+  '브릭부커(brickbooker) — 벽돌 같은 책을 읽고 사유를 기록하는 서평·에세이 공간. 서로 다른 시선을 교차하는 Brick by Brick과 책의 내적 구조를 펼쳐 읽는 Book Unfolded.';
+
+const homeKeywordSet = new Set<string>([
+  'brickbooker',
+  '브릭부커',
+  '벽돌책',
+  'Brick by Brick',
+  'Book Unfolded',
+]);
+for (const post of posts) {
+  homeKeywordSet.add(post.data.title);
+  for (const b of post.data.bib ?? []) {
+    homeKeywordSet.add(b.title);
+  }
+}
+const homeKeywords = Array.from(homeKeywordSet).filter(Boolean);
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'brickbooker',
+  alternateName: ['브릭부커', 'brickbooker.github.io'],
+  description: `${homeDescription} ${editorialNote}`,
+  url: 'https://brickbooker.github.io/',
+  inLanguage: 'ko',
+  mainEntity: {
+    '@type': 'Blog',
+    name: 'brickbooker',
+    alternateName: '브릭부커',
+    description: editorialNote,
+    url: 'https://brickbooker.github.io/',
+    blogPost: posts.map((post) => ({
+      '@type': 'BlogPosting',
+      headline: post.data.title,
+      url: `https://brickbooker.github.io/posts/${post.id}/`,
+      datePublished: post.data.date.toISOString().slice(0, 10),
+      ...(post.data.description ? { description: post.data.description } : {}),
+      ...(post.data.bricks && post.data.bricks.length > 0 ? { keywords: post.data.bricks } : {}),
+    })),
+  },
+};
+---
+
+<BaseLayout description={homeDescription} keywords={homeKeywords} jsonLd={jsonLd}>
+  <h1 class="sr-only">브릭부커 (brickbooker) — 글 목록</h1>
+  <p class="editorial-summary" aria-hidden="true">{editorialNote}</p>
+  {years.map((year) => (
+    <section class="year-section" aria-labelledby={`year-${year}`}>
+      <h2 id={`year-${year}`} class="year-heading">{year}</h2>
+      <ul class="post-list">
+        {postsByYear[year].map((post) => {
+          const hasBricks = Boolean(post.data.bricks && post.data.bricks.length > 0);
+          const describedBy = hasBricks ? `meta-${post.id} bricks-${post.id}` : `meta-${post.id}`;
+          return (
+            <li>
+              <article class="post-card">
+                <div id={`meta-${post.id}`} class="post-meta">
+                  <time datetime={post.data.date.toISOString()}>
+                    {formatDate(post.data.date)}
+                  </time>
+                  <span class="post-category">{formatCategory(post.data.category)}</span>
+                </div>
+                <h3 class="post-item-title">
+                  <a
+                    href={`/posts/${post.id}/`}
+                    class="post-card-link"
+                    aria-describedby={describedBy}
+                  >
+                    {post.data.title}
+                  </a>
+                </h3>
+                {hasBricks && (
+                  <p id={`bricks-${post.id}`} class="post-bricks-preview">
+                    {post.data.bricks.join(', ')}
+                  </p>
+                )}
+                {post.data.description && (
+                  <p class="post-summary" aria-hidden="true">
+                    〈{post.data.title}〉 — {post.data.description}
+                  </p>
+                )}
+              </article>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  ))}
+</BaseLayout>

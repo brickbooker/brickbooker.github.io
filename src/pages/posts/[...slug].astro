@@ -1,0 +1,354 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+export async function getStaticPaths() {
+  const posts = (await getCollection('posts')).sort(
+    (a, b) => b.data.date.valueOf() - a.data.date.valueOf()
+  );
+  return posts.map((post, idx) => ({
+    params: { slug: post.id },
+    props: {
+      post,
+      prevUrl:
+        idx + 1 < posts.length
+          ? `https://brickbooker.github.io/posts/${posts[idx + 1].id}/`
+          : undefined,
+      nextUrl:
+        idx > 0
+          ? `https://brickbooker.github.io/posts/${posts[idx - 1].id}/`
+          : undefined,
+    },
+  }));
+}
+
+const { post, prevUrl, nextUrl } = Astro.props;
+const { Content } = await render(post);
+const gasWebAppUrl = import.meta.env.PUBLIC_GAS_WEBAPP_URL || '';
+
+function formatDate(date: Date) {
+  return date.toISOString().slice(0, 7);
+}
+
+function formatCategory(category: string) {
+  if (category === 'brick-by-brick') return 'Brick by Brick';
+  if (category === 'book-unfolded') return 'Book Unfolded';
+  return category;
+}
+
+const postUrl = `https://brickbooker.github.io/posts/${post.id}/`;
+const markdownUrl = `/posts/${post.id}.md`;
+const bibList = post.data.bib ?? [];
+
+function cleanKoreanAuthor(raw?: string) {
+  if (!raw) return '';
+  return raw.replace(/\s*\([^)]*\)\s*/g, '').trim();
+}
+
+const titleAtoms: string[] = [];
+let prevAuthor = '';
+for (const b of bibList) {
+  const firstAuthor = cleanKoreanAuthor(b.author?.[0]);
+  const showAuthor = firstAuthor && firstAuthor !== prevAuthor;
+  if (firstAuthor) prevAuthor = firstAuthor;
+  const authorPrefix = showAuthor ? `${firstAuthor} ` : '';
+  if (b.type === 'book') {
+    titleAtoms.push(`${authorPrefix}《${b.title}》`);
+  } else if (b.type === 'article') {
+    titleAtoms.push(`${authorPrefix}〈${b.title}〉`);
+  } else {
+    titleAtoms.push(`${authorPrefix}${b.title}`);
+  }
+}
+
+const seoTitle =
+  titleAtoms.length > 0
+    ? `${post.data.title} — ${titleAtoms.join(' · ')}`
+    : post.data.bricks && post.data.bricks.length > 0
+      ? `${post.data.title} — ${post.data.bricks.join(' · ')}`
+      : post.data.title;
+
+const keywordSet = new Set<string>(['brickbooker', '브릭부커']);
+for (const brick of post.data.bricks ?? []) {
+  keywordSet.add(brick);
+}
+for (const b of bibList) {
+  keywordSet.add(b.title);
+  if (b.origtitle) keywordSet.add(b.origtitle);
+  for (const a of b.author ?? []) {
+    keywordSet.add(cleanKoreanAuthor(a));
+    const engMatch = a.match(/\(([^)]+)\)/);
+    if (engMatch) keywordSet.add(engMatch[1].trim());
+  }
+}
+const keywords = Array.from(keywordSet).filter(Boolean);
+
+const bibGraphNodes = bibList.map((b) => {
+  const nodeId = `${postUrl}#bib-${b.key}`;
+  const authors = (b.author ?? []).map((a) => ({
+    '@type': 'Person',
+    name: a,
+  }));
+  const sameAs = b.url || (b.doi ? `https://doi.org/${b.doi}` : undefined);
+
+  if (b.type === 'book') {
+    return {
+      '@type': 'Book',
+      '@id': nodeId,
+      name: b.title,
+      ...(b.origtitle ? { alternateName: b.origtitle } : {}),
+      ...(authors.length > 0 ? { author: authors } : {}),
+      ...(b.year ? { datePublished: String(b.year) } : {}),
+      ...(b.isbn ? { isbn: b.isbn } : {}),
+      ...(sameAs ? { sameAs } : {}),
+    };
+  }
+  if (b.type === 'article') {
+    return {
+      '@type': 'ScholarlyArticle',
+      '@id': nodeId,
+      headline: b.title,
+      name: b.title,
+      ...(b.origtitle ? { alternateName: b.origtitle } : {}),
+      ...(authors.length > 0 ? { author: authors } : {}),
+      ...(b.year ? { datePublished: String(b.year) } : {}),
+      ...(b.doi
+        ? {
+            identifier: {
+              '@type': 'PropertyValue',
+              propertyID: 'DOI',
+              value: b.doi,
+            },
+          }
+        : {}),
+      ...(sameAs ? { sameAs } : {}),
+    };
+  }
+  if (b.type === 'quote') {
+    return {
+      '@type': 'Quotation',
+      '@id': nodeId,
+      text: b.title,
+      name: b.title,
+      ...(b.origtitle ? { alternateName: b.origtitle } : {}),
+      ...(authors.length > 0 ? { creator: authors } : {}),
+      ...(b.year ? { dateCreated: String(b.year) } : {}),
+      ...(sameAs ? { sameAs } : {}),
+    };
+  }
+  return {
+    '@type': 'DefinedTerm',
+    '@id': nodeId,
+    name: b.title,
+    ...(b.origtitle ? { alternateName: b.origtitle } : {}),
+    ...(sameAs ? { url: sameAs, sameAs } : {}),
+  };
+});
+
+const baseRefs = bibList
+  .filter((b) => b.num === 0)
+  .map((b) => ({ '@id': `${postUrl}#bib-${b.key}` }));
+const citedRefs = bibList
+  .filter((b) => b.num > 0)
+  .map((b) => ({ '@id': `${postUrl}#bib-${b.key}` }));
+const allRefs = bibList.map((b) => ({ '@id': `${postUrl}#bib-${b.key}` }));
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'BlogPosting',
+      '@id': `${postUrl}#article`,
+      mainEntityOfPage: {
+        '@type': 'WebPage',
+        '@id': postUrl,
+      },
+      headline: post.data.title,
+      alternativeHeadline: seoTitle,
+      description: post.data.description || (post.data.bricks ?? []).join(', '),
+      datePublished: post.data.date.toISOString().slice(0, 10),
+      url: postUrl,
+      inLanguage: 'ko',
+      articleSection: formatCategory(post.data.category),
+      keywords,
+      ...(baseRefs.length > 0 ? { about: baseRefs } : {}),
+      ...(citedRefs.length > 0 ? { citation: citedRefs } : {}),
+      ...(allRefs.length > 0 ? { mentions: allRefs } : {}),
+      author: {
+        '@type': 'Person',
+        name: 'brickbooker',
+        alternateName: '브릭부커',
+        url: 'https://brickbooker.github.io/about/',
+      },
+      publisher: {
+        '@type': 'Organization',
+        name: 'brickbooker',
+        alternateName: '브릭부커',
+        url: 'https://brickbooker.github.io/',
+      },
+    },
+    ...bibGraphNodes,
+  ],
+};
+---
+
+<BaseLayout
+  title={seoTitle}
+  description={post.data.description}
+  ogType="article"
+  jsonLd={jsonLd}
+  keywords={keywords}
+  markdownUrl={markdownUrl}
+  prevUrl={prevUrl}
+  nextUrl={nextUrl}
+>
+  <a href="/" class="back-link"><span aria-hidden="true">←</span> Posts</a>
+
+  <article>
+    <header class="article-header">
+      <div class="post-meta">
+        <time datetime={post.data.date.toISOString()}>
+          {formatDate(post.data.date)}
+        </time>
+        <span class="post-category">{formatCategory(post.data.category)}</span>
+      </div>
+      <h1 class="article-title">{post.data.title}</h1>
+    </header>
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    <aside class="note-extension" aria-label="글 피드백" data-gas-url={gasWebAppUrl} data-post-title={post.data.title}>
+      <div class="note-trigger-row">
+        <button
+          type="button"
+          id="note-toggle"
+          class="note-toggle"
+          aria-expanded="false"
+          aria-controls="note-form"
+          aria-live="polite"
+        >Send feedback</button>
+      </div>
+      <form id="note-form" class="note-form" hidden>
+        <input
+          type="text"
+          name="website"
+          id="note-honeypot"
+          class="note-honeypot"
+          tabindex="-1"
+          autocomplete="off"
+          aria-hidden="true"
+        />
+        <div class="note-input-row">
+          <label for="note-input" class="sr-only">이 글에 대한 피드백</label>
+          <input
+            type="text"
+            id="note-input"
+            class="note-input"
+            placeholder="이 글에 대한 피드백을 남깁니다..."
+            maxlength="500"
+            autocomplete="off"
+            required
+          />
+          <div class="note-actions">
+            <button type="submit" class="note-submit">send</button>
+            <span class="note-sep" aria-hidden="true">/</span>
+            <button type="button" id="note-close" class="note-close">close</button>
+          </div>
+        </div>
+      </form>
+    </aside>
+  </article>
+
+  <script is:inline>
+    (function () {
+      document.querySelectorAll('.prose sup.cite a[role="doc-noteref"]').forEach(function (refLink) {
+        refLink.addEventListener('click', function () {
+          const targetId = refLink.getAttribute('href');
+          const refId = refLink.getAttribute('id');
+          if (!targetId || !refId) return;
+          const noteEl = document.querySelector(targetId);
+          const backLink = noteEl && noteEl.querySelector('a[role="doc-backlink"]');
+          if (backLink) {
+            backLink.setAttribute('href', '#' + refId);
+          }
+        });
+      });
+
+      const container = document.querySelector('.note-extension');
+      const toggleBtn = document.getElementById('note-toggle');
+      const form = document.getElementById('note-form');
+      const input = document.getElementById('note-input');
+      const closeBtn = document.getElementById('note-close');
+      const honeypot = document.getElementById('note-honeypot');
+
+      if (!container || !toggleBtn || !form || !input || !closeBtn) return;
+
+      const gasUrl = container.getAttribute('data-gas-url') || '';
+      const postTitle = container.getAttribute('data-post-title') || document.title;
+
+      function closeFormAndRestoreFocus() {
+        form.setAttribute('hidden', '');
+        input.value = '';
+        toggleBtn.setAttribute('aria-expanded', 'false');
+        toggleBtn.removeAttribute('hidden');
+        toggleBtn.focus();
+      }
+
+      toggleBtn.addEventListener('click', function () {
+        if (toggleBtn.textContent === 'Feedback sent.') return;
+        const isHidden = form.hasAttribute('hidden');
+        if (isHidden) {
+          form.removeAttribute('hidden');
+          toggleBtn.setAttribute('aria-expanded', 'true');
+          toggleBtn.setAttribute('hidden', '');
+          input.focus();
+        }
+      });
+
+      closeBtn.addEventListener('click', function () {
+        closeFormAndRestoreFocus();
+      });
+
+      form.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeFormAndRestoreFocus();
+        }
+      });
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const message = input.value.trim();
+        if (!message) return;
+
+        const trap = honeypot ? honeypot.value : '';
+        if (!trap && gasUrl) {
+          fetch(gasUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              postTitle: postTitle,
+              postPath: window.location.pathname,
+              message: message,
+              timestamp: new Date().toISOString(),
+            }),
+          }).catch(function () {});
+        }
+
+        input.value = '';
+        form.setAttribute('hidden', '');
+        toggleBtn.textContent = 'Feedback sent.';
+        toggleBtn.setAttribute('aria-expanded', 'false');
+        toggleBtn.removeAttribute('hidden');
+        toggleBtn.focus();
+
+        setTimeout(function () {
+          toggleBtn.textContent = 'Send feedback';
+        }, 3000);
+      });
+    })();
+  </script>
+</BaseLayout>

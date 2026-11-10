@@ -1,0 +1,126 @@
+name: Deploy Astro site to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: write
+  deployments: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PUBLIC_GA4_MEASUREMENT_ID: ${{ secrets.PUBLIC_GA4_MEASUREMENT_ID }}
+      PUBLIC_GAS_WEBAPP_URL: ${{ secrets.PUBLIC_GAS_WEBAPP_URL }}
+      GA4_PROPERTY_ID: ${{ secrets.GA4_PROPERTY_ID }}
+      GA4_CREDENTIALS_JSON: ${{ secrets.GA4_CREDENTIALS_JSON }}
+      INTERNAL_REPO: ${{ secrets.INTERNAL_REPO }}
+      INTERNAL_REPO_DEPLOY_KEY: ${{ secrets.INTERNAL_REPO_DEPLOY_KEY }}
+    steps:
+      - name: Checkout your repository using git
+        uses: actions/checkout@v4
+      - name: Checkout content source
+        if: env.INTERNAL_REPO != '' && env.INTERNAL_REPO_DEPLOY_KEY != ''
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.INTERNAL_REPO }}
+          ssh-key: ${{ secrets.INTERNAL_REPO_DEPLOY_KEY }}
+          path: _content
+      - name: Prepare content
+        if: env.INTERNAL_REPO != '' && env.INTERNAL_REPO_DEPLOY_KEY != ''
+        continue-on-error: true
+        run: |
+          cp _content/posts/[0-9a-f]*.md src/content/posts/ 2>/dev/null || true
+          rm -rf _content
+      - name: Install, build, and upload your site
+        uses: withastro/action@v3
+        with:
+          node-version: 22
+        env:
+          PUBLIC_GA4_MEASUREMENT_ID: ${{ secrets.PUBLIC_GA4_MEASUREMENT_ID }}
+          PUBLIC_GAS_WEBAPP_URL: ${{ secrets.PUBLIC_GAS_WEBAPP_URL }}
+          GA4_PROPERTY_ID: ${{ secrets.GA4_PROPERTY_ID }}
+          GA4_CREDENTIALS_JSON: ${{ secrets.GA4_CREDENTIALS_JSON }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Notify IndexNow
+        if: github.event_name != 'schedule'
+        continue-on-error: true
+        run: |
+          node -e '
+            (async () => {
+              const host = "brickbooker.github.io";
+              const key = "b7f4e9a2c1d84e72b9a60e5b32f919e6";
+              const res = await fetch(`https://${host}/sitemap.xml`);
+              if (!res.ok) return;
+              const xml = await res.text();
+              const urls = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+              const mdUrls = urls
+                .filter((u) => u.includes("/posts/"))
+                .map((u) => u.replace(/\/$/, ".md"));
+              urls.push(
+                ...mdUrls,
+                `https://${host}/llms.txt`,
+                `https://${host}/llms-full.txt`,
+                `https://${host}/bricks.json`
+              );
+              const urlList = Array.from(new Set(urls));
+              await fetch("https://api.indexnow.org/indexnow", {
+                method: "POST",
+                headers: { "Content-Type": "application/json; charset=utf-8" },
+                body: JSON.stringify({
+                  host,
+                  key,
+                  keyLocation: `https://${host}/${key}.txt`,
+                  urlList,
+                }),
+              });
+            })().catch(() => {});
+          '
+      - name: Clean up previous workflow runs and deployments
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/actions/runs?per_page=100" \
+            -q ".workflow_runs[] | select(.id != ${{ github.run_id }}) | .id" | \
+          while read -r run_id; do
+            if [ -n "$run_id" ]; then
+              gh api -X POST "repos/${{ github.repository }}/actions/runs/$run_id/cancel" 2>/dev/null || true
+              gh api -X DELETE "repos/${{ github.repository }}/actions/runs/$run_id" || true
+            fi
+          done
+
+          latest_deploy_id=$(gh api "repos/${{ github.repository }}/deployments?per_page=1" -q ".[0].id" 2>/dev/null || true)
+          if [ -n "$latest_deploy_id" ]; then
+            gh api --paginate "repos/${{ github.repository }}/deployments?per_page=100" \
+              -q ".[] | select(.id != $latest_deploy_id) | .id" | \
+            while read -r deploy_id; do
+              if [ -n "$deploy_id" ]; then
+                gh api -X POST "repos/${{ github.repository }}/deployments/$deploy_id/statuses" -f state=inactive 2>/dev/null || true
+                gh api -X DELETE "repos/${{ github.repository }}/deployments/$deploy_id" 2>/dev/null || true
+              fi
+            done
+          fi
